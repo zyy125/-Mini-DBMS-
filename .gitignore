@@ -1,0 +1,65 @@
+# Build outputs
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Compiled artifacts
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+db_server
+db_client
+mini_dbms
+
+# Runtime database files
+data/
+*.dat
+*.idx
+*.db
+*.wal
+
+# Logs and temporary files
+*.log
+logs/
+tmp/
+temp/
+*.tmp
+core
+core.*
+
+# Test and coverage outputs
+Testing/
+CTestTestfile.cmake
+coverage/
+*.gcda
+*.gcno
+*.gcov
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local AI planning/workflow files
+VIBE_CODING_PLAN.md
+.codex/
+
