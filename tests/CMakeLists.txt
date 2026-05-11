@@ -37,3 +37,12 @@ add_executable(mini_dbms_index_tests
 target_link_libraries(mini_dbms_index_tests PRIVATE mini_dbms_index)
 
 add_test(NAME index_tests COMMAND mini_dbms_index_tests)
+
+add_executable(mini_dbms_executor_tests
+    test_main.cpp
+    executor/executor_test.cpp
+)
+
+target_link_libraries(mini_dbms_executor_tests PRIVATE mini_dbms_executor)
+
+add_test(NAME executor_tests COMMAND mini_dbms_executor_tests)

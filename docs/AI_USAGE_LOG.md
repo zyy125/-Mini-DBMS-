@@ -191,3 +191,40 @@ Git:
 遗留问题:
 - B+树删除 API 暂未实现；Phase 6 delete/update 可先采用重建索引或延后 indexed delete/update 支持。
 - 尚未实现 string primary key 索引；若后续课程验收要求 string 主键建索引，需要扩展 key 类型和 `.idx` 格式版本。
+
+## 2026-05-11 Phase 6 Executor 集成
+
+Skill:
+executor-integrator, cpp-no-stl-reviewer, unit-test-designer, mini-dbms-test-report-recorder, ai-log-recorder
+
+平台/模型:
+待补充
+
+Prompt 摘要:
+要求 AI 使用 `executor-integrator`，先阅读项目规格、AI 上下文、Parser Command 定义、StorageEngine 公开 API、PrimaryIndex/B+Tree API、存储格式和索引设计文档；在 Phase 6 实现 Executor 公开 API、结构化 QueryResult、当前数据库上下文管理、课程 SQL 执行逻辑、insert 维护 primary index、select 主键条件优先走索引、非索引 where 走扫描，并补充 executor 单元测试和集成测试；Executor 不直接负责 socket 或 CLI 表格打印。
+
+AI 产出:
+- 新增 `include/executor/executor.h`，定义 `Executor`、`QueryResult`、`QueryRow`、`QueryValue`。
+- 新增 `src/executor/executor.cpp`，实现 parse+execute 辅助入口、DDL/DML 执行、当前数据库上下文、schema/类型检查、主键唯一性、insert 索引维护、主键等值/范围索引查询、扫描查询，以及 update/delete 后主键索引重建。
+- 新增 `tests/executor/executor_test.cpp`，覆盖 DDL、insert/select、主键索引等值和范围查询、非索引扫描、update/delete 后索引重建、主键冲突和错误路径。
+- 更新 CMake，新增 `mini_dbms_executor` 库和 `mini_dbms_executor_tests` 测试目标。
+- 追加 Phase 6 测试日志。
+
+人工审查:
+- 已检查 Executor 边界：不包含 socket 代码，不直接打印 CLI 表格，只返回结构化 `QueryResult`。
+- 已检查课程 SQL 覆盖：create/drop/use/create table/drop table/insert/select/delete/update 均通过统一执行入口。
+- 已根据测试失败修正空表 where 类型错误未提前校验的问题。
+- 已补充主键 update 冲突的写入前校验，避免存储已改但索引重建失败导致部分提交。
+- 已按 no-STL 约束扫描 `include src tests`，未发现 forbidden STL 容器。
+
+验证结果:
+- `cmake -S . -B build && cmake --build build && ctest --test-dir build --output-on-failure`：通过，5/5 tests passed。
+- no-STL 扫描 `rg "std::vector|std::map|std::set|std::unordered|std::list|std::deque|std::array|std::forward_list|std::span|std::stack|std::queue|std::priority_queue|#include <vector>|#include <map>|#include <set>|#include <unordered_map>|#include <unordered_set>|#include <list>|#include <deque>|#include <array>|#include <span>|#include <stack>|#include <queue>" include src tests`：无匹配。
+- `cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DMINI_DBMS_ENABLE_ASAN=ON && cmake --build build-asan && ctest --test-dir build-asan --output-on-failure`：通过，5/5 tests passed，未见 ASan/UBSan 报错。
+
+Git:
+未提交，原因：当前任务未要求提交；工作区包含 Phase 6 源码、测试和日志记录改动。
+
+遗留问题:
+- Executor 批量性能测试未实现。
+- Network/CLI 尚未接入 Executor；Phase 7 需要实现 TCP 请求处理和 MySQL 风格表格格式化。

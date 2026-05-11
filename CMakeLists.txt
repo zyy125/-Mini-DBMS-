@@ -53,6 +53,14 @@ add_library(mini_dbms_index
 
 target_link_libraries(mini_dbms_index PUBLIC mini_dbms_common mini_dbms_storage)
 
+add_library(mini_dbms_executor
+    src/executor/executor.cpp
+)
+
+target_link_libraries(mini_dbms_executor
+    PUBLIC mini_dbms_common mini_dbms_sql mini_dbms_storage mini_dbms_index
+)
+
 if(MINI_DBMS_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)

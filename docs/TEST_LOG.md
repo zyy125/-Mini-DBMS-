@@ -300,3 +300,79 @@ rg "std::(vector|map|set|unordered_map|unordered_set|list|deque|array|forward_li
 - 尚未补充 `Insert(key, RowId())` 的无效 RowId 单测。
 - 尚未补充损坏 `.idx` 文件的错误路径单测。
 - Phase 6 Executor 需要补充 SQL insert/select 通过主键索引访问 Storage 的集成测试。
+
+## 2026-05-11 Phase 6 Executor 集成
+
+### 测试范围
+
+- `executor` 模块公开 API：`Executor`、`QueryResult`、`QueryRow`、`QueryValue`。
+- SQL Parser 到 StorageEngine 和 B+树 PrimaryIndex 的端到端执行。
+- 当前数据库上下文管理：`create database`、`use`、`drop database`。
+- DDL/DML：`create table`、`drop table`、`insert`、`select`、`update`、`delete`。
+- `insert` 主键唯一性和 `.idx` 维护。
+- `select where primary =`、`<`、`>` 的索引路径。
+- 非索引 where 的全表扫描路径。
+- update/delete 后重建主键索引。
+- 错误输入、no-STL 容器约束、ASan/UBSan。
+
+### 测试用例与结果
+
+| 测试内容 | 输入 | 预期结果 | 实际结果 |
+| -------- | ---- | -------- | -------- |
+| Executor 构建 | `cmake --build build` | `mini_dbms_executor` 和 `mini_dbms_executor_tests` 构建成功 | 通过 |
+| 全量 CTest | `ctest --test-dir build --output-on-failure` | common/sql/storage/index/executor 全部通过 | 通过，5/5 tests passed |
+| 数据库和表 DDL | `create database school`、`use school`、`create table students (...)`、`drop table`、`drop database` | 数据库上下文正确切换；建表创建 `.idx`；删表删除 `.idx` | 通过 |
+| 主键等值索引查询 | 插入 id 1、2 后 `select name from students where id = 2` | 返回 bob，`used_index = true` | 通过 |
+| 主键范围索引查询 | `select id ... where id < 30`、`select id ... where id > 20` | 返回有序 RowId 对应行，`used_index = true` | 通过 |
+| 非索引扫描查询 | `select * from students where age = 20` | 走全表扫描，返回 bob 和 cora，`used_index = false` | 通过 |
+| update 后索引重建 | `update students set id = 5 where id = 2` 后分别查询 id 2 和 id 5 | id 2 查空；id 5 查到 bob；索引可用 | 通过 |
+| delete 后索引重建 | `delete students where id < 3` 后 `select id where id > 0` | 已删除行不再返回；剩余 id 3 和 5 | 通过 |
+| 主键更新冲突 | `update students set id = 1 where id = 2` | 写入前返回 `AlreadyExists`，原 id 2 行仍可查 | 通过 |
+
+### 性能测试
+
+| 测试内容 | 输入规模 | 验证命令 | 预期结果 | 实际结果 |
+| -------- | -------- | -------- | -------- | -------- |
+| Executor 批量 insert/select 性能 | 未定义 | 未运行 | 后续可增加固定规模 SQL 脚本和计时 | 未运行；Phase 6 只做正确性、错误路径和 sanitizer 验证 |
+
+### 错误测试
+
+| 测试内容 | 输入 | 预期结果 | 实际结果 |
+| -------- | ---- | -------- | -------- |
+| insert 类型错误 | `insert students values ("bad", "alice", 18)` | 返回 `StatusCode::kInvalidArgument` | 通过 |
+| select 未知列 | `select missing from students` | 返回 `StatusCode::kInvalidArgument` | 通过 |
+| where 类型错误 | `select id from students where age = "old"` | 返回 `StatusCode::kInvalidArgument`，即使表为空也先校验 where | 通过 |
+| update 未知列 | `update students set missing = 1` | 返回 `StatusCode::kInvalidArgument` | 通过 |
+| 重复主键 insert | 已有 id 2 后再次插入 id 2 | 返回 `StatusCode::kAlreadyExists` | 通过 |
+
+### 验证命令
+
+```bash
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+rg "std::vector|std::map|std::set|std::unordered|std::list|std::deque|std::array|std::forward_list|std::span|std::stack|std::queue|std::priority_queue|#include <vector>|#include <map>|#include <set>|#include <unordered_map>|#include <unordered_set>|#include <list>|#include <deque>|#include <array>|#include <span>|#include <stack>|#include <queue>" include src tests
+cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DMINI_DBMS_ENABLE_ASAN=ON
+cmake --build build-asan
+ctest --test-dir build-asan --output-on-failure
+```
+
+结果摘要：
+- `cmake -S . -B build`: 通过，普通构建目录配置完成。
+- `cmake --build build`: 通过，executor 库和测试目标构建完成。
+- `ctest --test-dir build --output-on-failure`: 通过，5/5 tests passed。
+- no-STL 扫描：通过，`include src tests` 下无 forbidden STL 容器匹配。
+- `cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DMINI_DBMS_ENABLE_ASAN=ON`: 通过，ASan/UBSan 构建目录生成完成。
+- `cmake --build build-asan`: 通过，ASan/UBSan 版本全部目标构建完成。
+- `ctest --test-dir build-asan --output-on-failure`: 通过，5/5 tests passed，未见 ASan/UBSan 报错。
+
+### AI 辅助测试说明
+
+- AI 如何辅助测试：根据 Phase 6 Executor 集成需求设计 executor 单元/集成测试，覆盖 DDL、DML、索引路径、扫描路径、update/delete 后索引重建和错误输入。
+- AI 给出的建议：Executor 返回结构化 `QueryResult`，CLI/Network 后续只负责格式化；B+树尚无删除 API，因此 update/delete 后按 live rows 重建主键索引。
+- 最终选择：采纳上述测试；批量性能脚本和网络/CLI smoke 测试留到后续阶段。
+
+### 遗留测试问题
+
+- 尚未实现 Executor 批量性能测试。
+- 尚未实现 Phase 7 Network/CLI 端到端 socket smoke 测试。
