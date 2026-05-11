@@ -155,3 +155,74 @@ ctest --test-dir build-asan --output-on-failure
 
 - 尚未设计 Parser 批量解析性能测试脚本。
 - 后续 Executor 集成阶段需要补充 Parser 到 Executor 的端到端 SQL 行为测试。
+
+## 2026-05-11 Phase 4 文件存储引擎
+
+### 测试范围
+
+- `storage` 模块公开 API：`StorageEngine`、`Schema`、`Row`、`Value`、`RowId` / `RecordId`。
+- 数据库目录创建、删除、切换。
+- 表元数据创建、删除、重启后加载。
+- 行插入、扫描、按 `RowId` 读取、更新、删除墓碑和持久化。
+- no-STL 容器约束扫描。
+- ASan/UBSan 构建与测试。
+
+### 测试用例与结果
+
+| 测试内容 | 输入 | 预期结果 | 实际结果 |
+| -------- | ---- | -------- | -------- |
+| Storage 默认构建 | `cmake --build build` | `mini_dbms_storage` 和 `mini_dbms_storage_tests` 构建成功 | 通过 |
+| Storage 单元测试 | `ctest --test-dir build --output-on-failure` | `common_tests`、`sql_tests`、`storage_tests` 全部通过 | 通过，3/3 tests passed |
+| 数据库生命周期 | `CreateDatabase("school")`、重复创建、`UseDatabase("school")`、`DropDatabase("school")` | 首次创建成功，重复创建 `AlreadyExists`，切换成功，删除目录 | 通过 |
+| 表元数据持久化 | 创建 `students(id int primary, name string, age int)` 后重建 `StorageEngine` 并 `LoadSchema` | schema、字段类型和 primary index 可恢复 | 通过 |
+| 插入、扫描、按 RowId 读取 | 插入两行学生数据，扫描表，读取第二行 RowId | scan 返回 live rows，RowId 可定位指定行 | 通过 |
+| 更新行为 | 短字符串更新为短字符串；再更新为更长字符串 | 可容纳时 RowId 不变；变长超出旧 payload 时返回新 RowId 且 `moved=true` | 通过 |
+| 删除和重启持久化 | 删除第一行后重建 `StorageEngine` 并扫描 | 删除行返回 `NotFound`，scan 只返回未删除行 | 通过 |
+| Drop table | `DropTable("students")` | 删除 `.meta`、`.dat`，并尝试删除保留的 `.idx` | 通过 |
+
+### 性能测试
+
+| 测试内容 | 输入规模 | 验证命令 | 预期结果 | 实际结果 |
+| -------- | -------- | -------- | -------- | -------- |
+| 批量插入和全表扫描性能 | 未定义 | 未运行 | 后续可增加固定行数插入/扫描计时脚本 | 未运行；Phase 4 只建立正确性和持久化单测 |
+
+### 错误测试
+
+| 测试内容 | 输入 | 预期结果 | 实际结果 |
+| -------- | ---- | -------- | -------- |
+| 重复创建数据库 | `CreateDatabase("school")` 调用两次 | 第二次返回 `StatusCode::kAlreadyExists` | 通过 |
+| 非法数据库名 | `CreateDatabase("schooldb1")` | 返回 `StatusCode::kInvalidArgument` | 通过 |
+| Row 与 schema 不匹配 | 对三列表插入一列且类型错误的 row | 返回 `StatusCode::kInvalidArgument` | 通过 |
+| 删除后读取旧 RowId | `DeleteRow` 后 `ReadRow` | 返回 `StatusCode::kNotFound` | 通过 |
+| Drop table 后加载 schema | `DropTable("students")` 后 `LoadSchema` | 返回 `StatusCode::kNotFound` | 通过 |
+
+### 验证命令
+
+```bash
+cmake --build build
+ctest --test-dir build --output-on-failure
+rg "std::vector|std::map|std::set|std::unordered|std::list|std::deque|std::array|std::forward_list|std::span|std::stack|std::queue|std::priority_queue" include src tests
+cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DMINI_DBMS_ENABLE_ASAN=ON
+cmake --build build-asan
+ctest --test-dir build-asan --output-on-failure
+```
+
+结果摘要：
+- `cmake --build build`: 通过，storage 库和测试目标构建完成。
+- `ctest --test-dir build --output-on-failure`: 通过，3/3 tests passed。
+- no-STL 扫描：通过，`include src tests` 下无 forbidden STL 容器匹配。
+- `cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DMINI_DBMS_ENABLE_ASAN=ON`: 通过，ASan/UBSan 构建目录生成完成。
+- `cmake --build build-asan`: 通过，ASan/UBSan 版本测试目标构建完成。
+- `ctest --test-dir build-asan --output-on-failure`: 通过，3/3 tests passed。
+
+### AI 辅助测试说明
+
+- AI 如何辅助测试：根据 Phase 4 存储需求设计数据库、表元数据、行 CRUD、持久化和错误路径测试，并执行构建、CTest、no-STL 扫描和 ASan/UBSan 验证。
+- AI 给出的建议：使用手动字段序列化和墓碑删除；以 `.dat` 文件偏移作为稳定 `RowId`；更新变长超出旧 payload 时返回新 RowId，供后续索引同步。
+- 最终选择：采纳上述测试与实现策略；性能测试暂不下结论，只记录为后续计划项。
+
+### 遗留测试问题
+
+- 尚未实现批量插入/扫描性能测试。
+- Phase 5 Index 需要补充索引文件与 `RowId` 的一致性测试。
+- Phase 6 Executor 需要补充 SQL 到 Storage 的端到端 DDL/DML 集成测试。

@@ -41,6 +41,12 @@ add_library(mini_dbms_sql
 
 target_link_libraries(mini_dbms_sql PUBLIC mini_dbms_common)
 
+add_library(mini_dbms_storage
+    src/storage/storage_engine.cpp
+)
+
+target_link_libraries(mini_dbms_storage PUBLIC mini_dbms_common mini_dbms_sql)
+
 if(MINI_DBMS_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)

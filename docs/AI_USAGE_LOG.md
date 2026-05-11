@@ -83,40 +83,6 @@ Git:
 遗留问题:
 - 无。
 
-## 2026-05-11 Phase 2 测试记录整理
-
-Skill:
-mini-dbms-test-report-recorder
-
-平台/模型:
-待补充
-
-Prompt 摘要:
-要求运行 `mini-dbms-test-report-recorder` skill，根据真实执行过的构建、测试、no-STL 扫描和 ASan/UBSan 结果，整理 Phase 2 测试报告记录。
-
-AI 产出:
-- 新增 `docs/TEST_LOG.md`，记录 Phase 2 测试范围、测试用例与结果、错误测试、性能测试状态、验证命令、AI 辅助测试说明和遗留测试问题。
-- 重新执行并记录 CMake 构建、CTest、no-STL 扫描和 ASan/UBSan 验证。
-
-人工审查:
-- 已按 skill 规则区分真实通过项、未运行性能测试和待补充错误路径测试。
-- 未修改生产代码。
-
-验证结果:
-- `cmake -S . -B build`：通过。
-- `cmake --build build`：通过。
-- `ctest --test-dir build --output-on-failure`：通过，`common_tests` 1/1 passed。
-- no-STL 扫描 `rg "std::vector|std::map|std::set|std::unordered|std::list|std::deque|std::array|std::forward_list|std::span|std::stack|std::queue|std::priority_queue" include src tests`：无匹配。
-- `cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DMINI_DBMS_ENABLE_ASAN=ON`：通过。
-- `cmake --build build-asan`：通过。
-- `ctest --test-dir build-asan --output-on-failure`：通过，`common_tests` 1/1 passed。
-
-Git:
-未提交，原因：当前任务未要求提交；工作区包含 Phase 2 源码、测试和文档记录改动。
-
-遗留问题:
-- 需要补充显式错误路径测试和基础容器性能测试脚本。
-
 ## 2026-05-11 Phase 3 SQL Lexer / Parser
 
 Skill:
@@ -152,3 +118,39 @@ Git:
 - Parser 批量解析性能测试未实现。
 - Executor 阶段需要基于 `SqlCommand` 补充端到端执行集成测试。
 
+## 2026-05-11 Phase 4 文件存储引擎
+
+Skill:
+storage-engine-designer, mini-dbms-test-report-recorder, ai-log-recorder
+
+平台/模型:
+待补充
+
+Prompt 摘要:
+要求 AI 扮演 `storage-engine-designer`，先阅读项目规格、AI 上下文、架构文档、`include/common` 和 SQL Command 定义；在 Phase 4 实现 `StorageEngine` 公开 API、数据库创建/删除/切换、表元数据创建/删除/加载、行插入/扫描/更新/删除、供 B+ 树定位记录的 `RowId` / `RecordId`、存储格式文档和持久化单元测试；序列化必须手动按字段写入，不得直接 `fwrite` 普通 struct。
+
+AI 产出:
+- 新增 `include/storage/storage_engine.h`，定义 `StorageEngine`、`Schema`、`Column`、`Value`、`Row`、`RowId` / `RecordId` 和结果结构。
+- 新增 `src/storage/storage_engine.cpp`，实现数据库目录管理、`.meta` schema 文件、`.dat` 行文件、墓碑删除、按 RowId 读取和更新。
+- 新增 `docs/STORAGE_FORMAT.md`，说明目录结构、metadata/data 文件格式、手动序列化策略、RowId 含义和 Phase 5 `.idx` 预留。
+- 新增 `tests/storage/storage_engine_test.cpp`，覆盖数据库/表生命周期、持久化、insert/scan/read/update/delete 和错误路径。
+- 更新 CMake，新增 `mini_dbms_storage` 和 `mini_dbms_storage_tests`。
+
+人工审查:
+- 已检查课程要求中的文件存储、`int`/`string`、string 256 字节限制、主键索引预留和 no-STL 容器约束。
+- 已根据测试失败修正非法数据库名测试输入：`schooldb` 是合法小写英文名，改为 `schooldb1`。
+- 已确认文件格式使用字段级序列化，没有直接持久化普通 C++ struct。
+
+验证结果:
+- `cmake --build build`：通过，storage 库和测试目标构建完成。
+- `ctest --test-dir build --output-on-failure`：通过，`common_tests`、`sql_tests`、`storage_tests` 3/3 passed。
+- no-STL 扫描 `rg "std::vector|std::map|std::set|std::unordered|std::list|std::deque|std::array|std::forward_list|std::span|std::stack|std::queue|std::priority_queue" include src tests`：无匹配。
+- `cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DMINI_DBMS_ENABLE_ASAN=ON && cmake --build build-asan && ctest --test-dir build-asan --output-on-failure`：通过，3/3 tests passed。
+
+Git:
+未提交，原因：当前任务未要求提交；工作区包含 Phase 4 源码、测试和文档记录改动。
+
+遗留问题:
+- 批量存储性能测试未实现。
+- Phase 5 需要将主键唯一性和 `.idx` 持久化接入 `RowId`。
+- Phase 6 需要通过 Executor 将 SQL 命令接入 Storage API。

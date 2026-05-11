@@ -19,3 +19,12 @@ add_executable(mini_dbms_sql_tests
 target_link_libraries(mini_dbms_sql_tests PRIVATE mini_dbms_sql)
 
 add_test(NAME sql_tests COMMAND mini_dbms_sql_tests)
+
+add_executable(mini_dbms_storage_tests
+    test_main.cpp
+    storage/storage_engine_test.cpp
+)
+
+target_link_libraries(mini_dbms_storage_tests PRIVATE mini_dbms_storage)
+
+add_test(NAME storage_tests COMMAND mini_dbms_storage_tests)
