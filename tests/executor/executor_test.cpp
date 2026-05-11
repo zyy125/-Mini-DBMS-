@@ -174,6 +174,24 @@ TEST_CASE("Executor rejects primary key update conflicts before writing") {
     EXPECT_EQ(std::string("bob"), selected.rows[0].values[0].string_value);
 }
 
+TEST_CASE("Executor rejects primary key update that would collapse multiple rows") {
+    Executor executor(TestRoot("executor_update_many_conflict"));
+    EXPECT_STATUS_OK(executor.Initialize());
+    CreateStudents(&executor);
+    InsertStudent(&executor, 1, "alice", 18);
+    InsertStudent(&executor, 2, "bob", 20);
+
+    QueryResult conflict = executor.ExecuteSql("update students set id = 9");
+    EXPECT_EQ(StatusCode::kAlreadyExists, conflict.status.code());
+
+    QueryResult remaining = executor.ExecuteSql("select id from students where id > 0");
+    EXPECT_STATUS_OK(remaining.status);
+    EXPECT_TRUE(remaining.used_index);
+    EXPECT_EQ(static_cast<std::size_t>(2), remaining.rows.size());
+    EXPECT_EQ(1, remaining.rows[0].values[0].int_value);
+    EXPECT_EQ(2, remaining.rows[1].values[0].int_value);
+}
+
 TEST_CASE("Executor rejects unknown columns and wrong value types") {
     Executor executor(TestRoot("executor_errors"));
     EXPECT_STATUS_OK(executor.Initialize());
@@ -187,4 +205,20 @@ TEST_CASE("Executor rejects unknown columns and wrong value types") {
               executor.ExecuteSql("select id from students where age = \"old\"").status.code());
     EXPECT_EQ(StatusCode::kInvalidArgument,
               executor.ExecuteSql("update students set missing = 1").status.code());
+}
+
+TEST_CASE("Executor rejects missing database table and unsupported indexed primary type") {
+    Executor executor(TestRoot("executor_more_errors"));
+    EXPECT_STATUS_OK(executor.Initialize());
+
+    EXPECT_EQ(StatusCode::kInvalidArgument,
+              executor.ExecuteSql("create table students (id int primary)").status.code());
+    EXPECT_EQ(StatusCode::kNotFound, executor.ExecuteSql("use missing").status.code());
+
+    EXPECT_STATUS_OK(executor.ExecuteSql("create database school").status);
+    EXPECT_STATUS_OK(executor.ExecuteSql("use school").status);
+    EXPECT_EQ(StatusCode::kInvalidArgument,
+              executor.ExecuteSql("create table codes (code string primary)").status.code());
+    EXPECT_EQ(StatusCode::kNotFound,
+              executor.ExecuteSql("select * from students").status.code());
 }

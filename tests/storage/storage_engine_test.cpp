@@ -204,3 +204,51 @@ TEST_CASE("StorageEngine validates row shape and drops table files") {
     EXPECT_TRUE(!std::filesystem::exists(root / "school" / "students.dat"));
     EXPECT_EQ(StatusCode::kNotFound, engine.LoadSchema("students").status.code());
 }
+
+TEST_CASE("StorageEngine rejects schema errors required by course constraints") {
+    std::filesystem::path root = TestRoot("schema_errors");
+    StorageEngine engine(root);
+
+    EXPECT_STATUS_OK(engine.Initialize());
+    EXPECT_STATUS_OK(engine.CreateDatabase("school"));
+    EXPECT_STATUS_OK(engine.UseDatabase("school"));
+
+    Schema duplicate_names;
+    Column first;
+    first.name = "id";
+    first.type = ColumnType::kInt;
+    EXPECT_STATUS_OK(duplicate_names.columns.PushBack(first));
+    Column second;
+    second.name = "id";
+    second.type = ColumnType::kString;
+    EXPECT_STATUS_OK(duplicate_names.columns.PushBack(second));
+    EXPECT_EQ(StatusCode::kInvalidArgument,
+              engine.CreateTable("dups", duplicate_names).code());
+
+    Schema string_primary;
+    Column code;
+    code.name = "code";
+    code.type = ColumnType::kString;
+    code.primary = true;
+    EXPECT_STATUS_OK(string_primary.columns.PushBack(code));
+    string_primary.primary_column_index = 0;
+    EXPECT_EQ(StatusCode::kInvalidArgument,
+              engine.CreateTable("codes", string_primary).code());
+}
+
+TEST_CASE("StorageEngine enforces string length boundary") {
+    std::filesystem::path root = TestRoot("string_length");
+    StorageEngine engine(root);
+
+    EXPECT_STATUS_OK(engine.Initialize());
+    EXPECT_STATUS_OK(engine.CreateDatabase("school"));
+    EXPECT_STATUS_OK(engine.UseDatabase("school"));
+    EXPECT_STATUS_OK(engine.CreateTable("students", StudentSchema()));
+
+    std::string exactly_max(256, 'a');
+    EXPECT_STATUS_OK(engine.InsertRow("students", StudentRow(1, exactly_max, 18)).status);
+
+    std::string too_long(257, 'b');
+    EXPECT_EQ(StatusCode::kInvalidArgument,
+              engine.InsertRow("students", StudentRow(2, too_long, 19)).status.code());
+}

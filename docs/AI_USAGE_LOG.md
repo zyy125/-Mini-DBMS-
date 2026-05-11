@@ -266,3 +266,47 @@ Git:
 遗留问题:
 - 服务端当前按连接串行处理请求，暂未实现多客户端并发。
 - 响应格式为项目自定义文本协议，暂未提供独立网络单元测试；已有 `scripts/manual_demo.sh` 覆盖端到端 smoke test。
+
+## 2026-05-11 Phase 8 系统测试与修复
+
+Skill:
+unit-test-designer, cpp-no-stl-reviewer, ai-log-recorder
+
+平台/模型:
+待补充
+
+Prompt 摘要:
+要求 AI 扮演 `unit-test-designer` 和课程验收测试员，先阅读课程需求、AI 项目上下文、当前源码、测试、CMake 配置和 demo 脚本；在 Phase 8 建立需求到测试覆盖表，补充缺失单元测试、端到端集成测试或 demo 脚本，检查错误处理、禁止 STL 容器、测试框架依赖、ASan/UBSan 构建，并给出必须立即修复的问题清单且修复本阶段可解决的问题。
+
+AI 产出:
+- 新增 `docs/TEST_COVERAGE_PHASE8.md`，记录课程需求到现有/新增测试的覆盖关系，并列出 Phase 8 必须修复问题。
+- 修复 `src/storage/storage_engine.cpp` 中 `string primary` 可被接受的问题：由于当前 B+树索引只支持 `int` key，非 `int` 主键现在会被 schema 校验拒绝，避免静默违反“primary 字段必须建立 B+树索引”。
+- 更新 `tests/sql/parser_test.cpp`，补充 malformed list、trailing token、整数越界等 Parser 错误路径测试。
+- 更新 `tests/storage/storage_engine_test.cpp`，补充重复列名、非 `int` 主键、字符串 256 字节边界测试。
+- 更新 `tests/executor/executor_test.cpp`，补充未选择数据库、缺失数据库/表、非 `int` 主键、批量主键 update 冲突等错误路径测试。
+- 新增 `tests/network/protocol_test.cpp`，覆盖 TCP frame 协议的正常收发、空 payload、空输出指针和超大 payload 拒绝。
+- 新增 `scripts/e2e_acceptance.sh`，通过 `db_server` + `db_client` 执行 create/use/create table/insert/select/update/delete/drop table/drop database 并校验输出。
+- 更新 `tests/CMakeLists.txt`，新增 `network_tests` 和 `e2e_acceptance` CTest 项。
+
+人工审查:
+- 已从课程验收角度检查 SQL、存储、索引、Executor、网络、CLI、错误处理、测试框架和 demo 覆盖缺口。
+- 已确认 `include/testing/test_framework.h` 为项目自研轻量测试框架，未依赖 GoogleTest/Catch2，也未使用 forbidden STL 容器。
+- 已确认新增测试和脚本不引入 forbidden STL 容器。
+- 已确认新增端到端脚本覆盖 drop table/drop database，并对关键输出做语义校验。
+- 人工修改点：将“非 `int primary`”处理从隐式接受改为显式拒绝，并增加对应单元测试和覆盖表说明。
+
+验证结果:
+- `cmake -S . -B build`：通过。
+- `cmake --build build`：通过，新增 `mini_dbms_network_tests` 构建完成。
+- `ctest --test-dir build --output-on-failure`：通过，7/7 tests passed，包括 `common_tests`、`sql_tests`、`storage_tests`、`index_tests`、`executor_tests`、`network_tests`、`e2e_acceptance`。
+- no-STL 扫描 `rg -n "std::vector|std::map|std::set|std::unordered|std::list|std::deque|std::array|std::forward_list|std::span|std::stack|std::queue|std::priority_queue|#include <vector>|#include <map>|#include <set>|#include <unordered_map>|#include <unordered_set>|#include <list>|#include <deque>|#include <array>|#include <span>|#include <stack>|#include <queue>" include src tests`：无匹配。
+- `cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DMINI_DBMS_ENABLE_ASAN=ON`：通过。
+- `cmake --build build-asan`：通过。
+- `ctest --test-dir build-asan --output-on-failure`：通过，7/7 tests passed，未见 ASan/UBSan 报错。
+
+Git:
+未提交，原因：当前任务未要求提交；工作区包含 Phase 8 源码、测试、脚本、覆盖表和日志记录改动。记录时 `HEAD` 为 `efc2b48`，但该提交不包含本阶段改动。
+
+遗留问题:
+- 服务端仍为按连接串行处理请求，暂未实现多客户端并发；该问题来自 Phase 7，不影响 Phase 8 当前验收测试通过。
+- 当前主键索引仅支持 `int primary`；Phase 8 选择显式拒绝 `string primary`，如果后续课程验收要求 string 主键也必须建索引，需要扩展 B+树 key 类型和 `.idx` 格式。

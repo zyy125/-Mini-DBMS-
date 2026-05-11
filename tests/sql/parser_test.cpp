@@ -181,3 +181,12 @@ TEST_CASE("Parser rejects invalid identifiers and strings") {
     ExpectParseError("create table students (student_id int)");
     ExpectParseError("insert students values (\"unterminated)");
 }
+
+TEST_CASE("Parser rejects malformed list and trailing tokens") {
+    ExpectParseError("select from students");
+    ExpectParseError("select id, from students");
+    ExpectParseError("insert students values (1,)");
+    ExpectParseError("create table students (id int,)");
+    ExpectParseError("use school now");
+    ExpectParseError("select * from students where id = 2147483648");
+}

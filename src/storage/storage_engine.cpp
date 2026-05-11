@@ -768,6 +768,9 @@ Status StorageEngine::ValidateSchema(const Schema& schema) const {
             if (schema.primary_column_index != static_cast<int>(i)) {
                 return Status::InvalidArgument("Primary column index does not match column flags");
             }
+            if (schema.columns[i].type != ColumnType::kInt) {
+                return Status::InvalidArgument("Primary key must be int for B+ tree index");
+            }
         }
     }
     if (primary_count > 1) {

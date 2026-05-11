@@ -455,3 +455,88 @@ SQL
 - 尚未实现多客户端并发测试。
 - 尚未实现服务端断连、客户端重连和超大 payload 的自动化错误测试。
 - 尚未运行 Phase 7 ASan/UBSan 构建。
+
+## 2026-05-11 Phase 8 系统测试与修复
+
+### 测试范围
+
+- 课程需求到测试用例的覆盖关系。
+- SQL Parser、StorageEngine、Executor 的错误处理补测。
+- TCP frame protocol 独立单元测试。
+- Client/Server 端到端验收脚本。
+- 测试框架 forbidden STL 容器依赖检查。
+- 源码与测试 no-STL 容器扫描。
+- 普通构建、全量 CTest、ASan/UBSan 构建和测试。
+- Phase 8 发现的真实缺陷修复：非 `int primary` 不应被接受。
+
+### 测试用例与结果
+
+| 测试内容 | 输入 | 预期结果 | 实际结果 |
+| -------- | ---- | -------- | -------- |
+| 需求覆盖表 | `docs/PROJECT_SPEC.md`、`docs/AI_PROJECT_CONTEXT.md`、当前测试和脚本 | 每项核心课程需求映射到已有或新增测试 | 通过，新增 `docs/TEST_COVERAGE_PHASE8.md` |
+| 普通构建 | `cmake -S . -B build`、`cmake --build build` | 所有库、可执行程序和测试目标构建成功 | 通过 |
+| 全量 CTest | `ctest --test-dir build --output-on-failure` | common/sql/storage/index/executor/network/e2e 全部通过 | 通过，7/7 tests passed |
+| SQL Parser 错误路径 | malformed list、trailing token、整数越界 SQL | 返回 `StatusCode::kInvalidArgument`，不产生有效命令 | 通过 |
+| Storage schema 错误路径 | 重复列名、`string primary` | 返回 `StatusCode::kInvalidArgument` | 通过 |
+| 字符串长度边界 | 256 字节 string 和 257 字节 string | 256 字节允许插入；257 字节拒绝 | 通过 |
+| Executor 主键批量更新冲突 | 两行数据后执行 `update students set id = 9` | 返回 `AlreadyExists`，原数据不被修改 | 通过 |
+| Executor 缺失上下文/对象 | 未选择数据库建表、`use missing`、查询缺失表 | 返回明确错误码，不崩溃 | 通过 |
+| TCP frame protocol 单元测试 | socketpair 上 SendFrame/ReceiveFrame | payload 可完整往返 | 通过，新增 `network_tests` |
+| C/S 端到端验收 | `scripts/e2e_acceptance.sh` 启动 server/client 执行 SQL | create/use/create table/insert/select/update/delete/drop table/drop database 成功，输出可校验 | 通过，CTest `e2e_acceptance` passed |
+| 测试框架依赖检查 | `include/testing/test_framework.h` | 自研测试框架，不依赖 GoogleTest/Catch2，不使用 forbidden STL 容器 | 通过，人工审查和 no-STL 扫描均未发现违规 |
+
+### 性能测试
+
+| 测试内容 | 输入规模 | 验证命令 | 预期结果 | 实际结果 |
+| -------- | -------- | -------- | -------- | -------- |
+| 批量 insert/select 性能 | 未定义 | 未运行 | 后续可增加固定规模 SQL 脚本和计时指标 | 未运行；Phase 8 聚焦验收覆盖、错误处理、端到端和 sanitizer |
+| 网络并发性能 | 未定义 | 未运行 | 后续可增加多客户端并发脚本 | 未运行；当前服务端仍为按连接串行处理 |
+
+### 错误测试
+
+| 测试内容 | 输入 | 预期结果 | 实际结果 |
+| -------- | ---- | -------- | -------- |
+| Parser 列表语法错误 | `select id, from students`、`insert students values (1,)`、`create table students (id int,)` | `StatusCode::kInvalidArgument` | 通过 |
+| Parser trailing token | `use school now` | `StatusCode::kInvalidArgument` | 通过 |
+| Parser int 越界 | `select * from students where id = 2147483648` | `StatusCode::kInvalidArgument` | 通过 |
+| Storage 重复列名 | schema 中两个 `id` 列 | `StatusCode::kInvalidArgument` | 通过 |
+| Storage 非 `int primary` | `code string primary` | `StatusCode::kInvalidArgument` | 通过，修复后拒绝 |
+| Storage string 超长 | 插入 257 字节 string | `StatusCode::kInvalidArgument` | 通过 |
+| Executor 批量主键 update 冲突 | `update students set id = 9` 匹配多行 | `StatusCode::kAlreadyExists`，不写入 | 通过 |
+| Executor 未选择数据库 | 未 `use` 时 `create table students (id int primary)` | `StatusCode::kInvalidArgument` | 通过 |
+| Executor 缺失数据库/表 | `use missing`、`select * from students` | `NotFound` | 通过 |
+| Protocol null output | `ReceiveFrame(fd, nullptr)` | `StatusCode::kInvalidArgument` | 通过 |
+| Protocol 超大 payload | frame length 为 `kMaxPayloadBytes + 1` | 先拒绝，不分配超大内存 | 通过 |
+
+### 验证命令
+
+```bash
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+rg -n "std::vector|std::map|std::set|std::unordered|std::list|std::deque|std::array|std::forward_list|std::span|std::stack|std::queue|std::priority_queue|#include <vector>|#include <map>|#include <set>|#include <unordered_map>|#include <unordered_set>|#include <list>|#include <deque>|#include <array>|#include <span>|#include <stack>|#include <queue>" include src tests
+cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DMINI_DBMS_ENABLE_ASAN=ON
+cmake --build build-asan
+ctest --test-dir build-asan --output-on-failure
+```
+
+结果摘要：
+- `cmake -S . -B build`: 通过，普通构建目录配置完成。
+- `cmake --build build`: 通过，新增 `mini_dbms_network_tests` 构建完成。
+- `ctest --test-dir build --output-on-failure`: 通过，7/7 tests passed。
+- no-STL 扫描：通过，`include src tests` 下无 forbidden STL 容器匹配。
+- `cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=Debug -DMINI_DBMS_ENABLE_ASAN=ON`: 通过，ASan/UBSan 构建目录配置完成。
+- `cmake --build build-asan`: 通过，ASan/UBSan 版本全部目标构建完成。
+- `ctest --test-dir build-asan --output-on-failure`: 通过，7/7 tests passed，未见 ASan/UBSan 报错。
+
+### AI 辅助测试说明
+
+- AI 如何辅助测试：根据课程需求建立覆盖表，审查现有单元测试、CMake、demo 脚本和错误处理路径，补充缺失测试并整理真实验证结果。
+- AI 给出的建议：将 `string primary` 从隐式接受改为显式拒绝，原因是当前 B+树只支持 `int` key；将网络协议从 manual demo 扩展为独立 CTest；将端到端 demo 改为可校验输出的验收脚本。
+- 最终选择：采纳上述修复和测试补充；性能与并发测试保留为后续测试项，不在 Phase 8 伪造结果。
+
+### 遗留测试问题
+
+- 尚未实现批量性能测试和网络并发性能测试。
+- 服务端仍为按连接串行处理，请求级并发测试暂不适用。
+- 当前主键索引仅支持 `int primary`；如后续要求 `string primary` 也建立 B+树索引，需要扩展索引实现并补对应测试。

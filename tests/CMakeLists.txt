@@ -46,3 +46,19 @@ add_executable(mini_dbms_executor_tests
 target_link_libraries(mini_dbms_executor_tests PRIVATE mini_dbms_executor)
 
 add_test(NAME executor_tests COMMAND mini_dbms_executor_tests)
+
+add_executable(mini_dbms_network_tests
+    test_main.cpp
+    network/protocol_test.cpp
+)
+
+target_link_libraries(mini_dbms_network_tests PRIVATE mini_dbms_network)
+
+add_test(NAME network_tests COMMAND mini_dbms_network_tests)
+
+add_test(NAME e2e_acceptance
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/e2e_acceptance.sh
+            $<TARGET_FILE:db_server>
+            $<TARGET_FILE:db_client>
+            ${CMAKE_CURRENT_BINARY_DIR}/e2e_acceptance_data
+)
