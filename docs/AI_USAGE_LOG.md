@@ -154,3 +154,40 @@ Git:
 - 批量存储性能测试未实现。
 - Phase 5 需要将主键唯一性和 `.idx` 持久化接入 `RowId`。
 - Phase 6 需要通过 Executor 将 SQL 命令接入 Storage API。
+
+## 2026-05-11 Phase 5 B+树主键索引
+
+Skill:
+bplustree-index-builder, ai-log-recorder
+
+平台/模型:
+待补充
+
+Prompt 摘要:
+要求 AI 扮演 `bplustree-index-builder`，先阅读项目规格、AI 上下文、架构文档、存储格式文档和 Storage 的 `RowId` / `RecordId` 定义；在 Phase 5 实现 `int primary key` 的 B+树索引、key 到 `RowId` 映射、插入、精确查询、`<` / `>` 范围查询、重复主键检测、`.idx` 持久化、索引设计文档和 index 单元测试；节点内部优先使用固定数组或项目自研结构，不使用 STL 容器；删除可先采用重建索引或懒删除策略并在文档中说明。
+
+AI 产出:
+- 新增 `include/index/bplus_tree_index.h`，定义 `BPlusTreeIndex`、`IndexLookupResult` 和 `IndexRangeResult`，公开 `Insert`、`FindEqual`、`FindLessThan`、`FindGreaterThan`、`SaveToFile`、`LoadFromFile` 等核心 API。
+- 新增 `src/index/bplus_tree_index.cpp`，实现固定数组节点的 B+树插入、叶子/内部节点分裂、叶子链表范围扫描、重复主键拒绝和 `.idx` 字段级序列化/反序列化。
+- 新增 `tests/index/bplus_tree_index_test.cpp`，覆盖空树查询、精确查询、重复主键、叶子和内部节点分裂、范围查询、保存和重载。
+- 新增 `docs/INDEX_DESIGN.md`，说明公开 API、B+树阶数和节点结构、`.idx` 文件格式、删除限制以及 Phase 6 Executor 调用方式。
+- 更新 CMake，新增 `mini_dbms_index` 库和 `mini_dbms_index_tests` 测试目标。
+
+人工审查:
+- 已检查课程要求中的 `int`/`string` 类型、主键必须建立 B+树索引、文件持久化、no-STL 容器和自研数据结构约束。
+- 已确认 Phase 5 只支持 `int` key，没有扩展 string key。
+- 已根据测试结果修正内部节点插入时父子指针定位错误；原问题表现为大量插入后返回 `Internal: B+ tree parent link is inconsistent`。
+- 已修正范围持久化测试的越界风险，避免断言失败后继续访问空结果数组。
+
+验证结果:
+- `cmake --build build`：通过，新增 index 库和测试目标构建完成。
+- `ctest --test-dir build --output-on-failure`：通过，`common_tests`、`sql_tests`、`storage_tests`、`index_tests` 4/4 passed。
+- `cmake -S . -B build-asan -DMINI_DBMS_ENABLE_ASAN=ON && cmake --build build-asan --target mini_dbms_index_tests && ./build-asan/tests/mini_dbms_index_tests`：通过，index 单元测试 6/6 passed，未见 ASan/UBSan 报错。
+- no-STL 扫描 `rg "std::(vector|map|set|unordered_map|unordered_set|list|deque|array|forward_list|span|stack|queue|priority_queue)" include src tests -n`：无匹配。
+
+Git:
+未提交，原因：当前任务未要求提交；当前工作区包含 Phase 5 源码、测试、文档和日志记录改动。记录时 `HEAD` 为 `1f009ab`，但该提交不包含本阶段改动。
+
+遗留问题:
+- B+树删除 API 暂未实现；Phase 6 delete/update 可先采用重建索引或延后 indexed delete/update 支持。
+- 尚未实现 string primary key 索引；若后续课程验收要求 string 主键建索引，需要扩展 key 类型和 `.idx` 格式版本。

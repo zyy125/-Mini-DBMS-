@@ -28,3 +28,12 @@ add_executable(mini_dbms_storage_tests
 target_link_libraries(mini_dbms_storage_tests PRIVATE mini_dbms_storage)
 
 add_test(NAME storage_tests COMMAND mini_dbms_storage_tests)
+
+add_executable(mini_dbms_index_tests
+    test_main.cpp
+    index/bplus_tree_index_test.cpp
+)
+
+target_link_libraries(mini_dbms_index_tests PRIVATE mini_dbms_index)
+
+add_test(NAME index_tests COMMAND mini_dbms_index_tests)

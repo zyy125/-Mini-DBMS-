@@ -47,6 +47,12 @@ add_library(mini_dbms_storage
 
 target_link_libraries(mini_dbms_storage PUBLIC mini_dbms_common mini_dbms_sql)
 
+add_library(mini_dbms_index
+    src/index/bplus_tree_index.cpp
+)
+
+target_link_libraries(mini_dbms_index PUBLIC mini_dbms_common mini_dbms_storage)
+
 if(MINI_DBMS_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)

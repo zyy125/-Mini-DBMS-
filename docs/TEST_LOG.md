@@ -226,3 +226,77 @@ ctest --test-dir build-asan --output-on-failure
 - 尚未实现批量插入/扫描性能测试。
 - Phase 5 Index 需要补充索引文件与 `RowId` 的一致性测试。
 - Phase 6 Executor 需要补充 SQL 到 Storage 的端到端 DDL/DML 集成测试。
+
+## 2026-05-11 Phase 5 B+树主键索引
+
+### 测试范围
+
+- `index` 模块公开 API：`BPlusTreeIndex`、`IndexLookupResult`、`IndexRangeResult`。
+- `int primary key` 到 `storage::RowId` 的唯一映射。
+- B+树插入、叶子节点分裂、内部节点分裂、精确查询和范围查询。
+- `.idx` 文件保存和重新加载。
+- 重复主键、空树查询和未命中查询等错误路径。
+- no-STL 容器约束扫描。
+- ASan/UBSan 构建与 index 单元测试。
+
+### 测试用例与结果
+
+| 测试内容 | 输入 | 预期结果 | 实际结果 |
+| -------- | ---- | -------- | -------- |
+| Index 默认构建 | `cmake --build build` | `mini_dbms_index` 和 `mini_dbms_index_tests` 构建成功 | 通过 |
+| Index 单元测试 | `ctest --test-dir build --output-on-failure` | `common_tests`、`sql_tests`、`storage_tests`、`index_tests` 全部通过 | 通过，4/4 tests passed |
+| 空树查询 | 新建空 `BPlusTreeIndex` 后 `FindEqual(1)`、`FindLessThan(10)`、`FindGreaterThan(10)` | 精确查询返回 `NotFound`；范围查询成功且结果为空 | 通过 |
+| 精确查询 | 插入 `(3, RowId(30))`、`(1, RowId(10))`、`(5, RowId(50))` 后查询 key 1 和 key 4 | key 1 返回 `RowId(10)`；key 4 返回 `NotFound` | 通过 |
+| 重复主键检测 | 插入 key 7 后再次插入 key 7 | 第二次插入返回 `AlreadyExists`，原 `RowId` 保持不变 | 通过 |
+| 节点分裂 | 逆序插入 key 30 到 1，共 30 条 | 触发叶子和内部节点分裂；全部 key 可精确查回正确 `RowId` | 通过 |
+| 范围查询 `<` / `>` | 插入 key 10、20、30、40、50 后查询 `< 35` 和 `> 30` | `< 35` 返回 100、200、300；`> 30` 返回 400、500 | 通过 |
+| `.idx` 持久化 | 插入 18 条偶数 key，`SaveToFile` 后用新索引 `LoadFromFile` | 文件存在；重载后 size 为 18；精确查询和范围查询结果保持一致 | 通过 |
+
+### 性能测试
+
+| 测试内容 | 输入规模 | 验证命令 | 预期结果 | 实际结果 |
+| -------- | -------- | -------- | -------- | -------- |
+| B+树批量插入/查询性能 | 未定义 | 未运行 | 后续可增加固定规模插入、精确查询和范围查询计时脚本 | 未运行；Phase 5 只建立正确性、持久化和 sanitizer 单测 |
+
+### 错误测试
+
+| 测试内容 | 输入 | 预期结果 | 实际结果 |
+| -------- | ---- | -------- | -------- |
+| 空树精确查询 | `FindEqual(1)` | 返回 `StatusCode::kNotFound`，不崩溃 | 通过 |
+| 查询不存在 key | 已插入 key 1、3、5 后 `FindEqual(4)` | 返回 `StatusCode::kNotFound` | 通过 |
+| 重复主键插入 | `Insert(7, RowId(70))` 后 `Insert(7, RowId(700))` | 返回 `StatusCode::kAlreadyExists`，size 仍为 1 | 通过 |
+| 持久化后查询不存在 key | 重载 `.idx` 后 `FindEqual(11)` | 返回 `StatusCode::kNotFound` | 通过 |
+| 无效 RowId 插入 | `Insert(key, RowId())` | 返回 `StatusCode::kInvalidArgument` | 待验证；代码已实现校验，但当前单测未覆盖 |
+| 损坏 `.idx` 文件 | 非法 magic、版本或 key type | 返回非 OK `Status`，不崩溃 | 待验证；代码已实现校验，但当前单测未覆盖 |
+
+### 验证命令
+
+```bash
+cmake --build build
+ctest --test-dir build --output-on-failure
+cmake -S . -B build-asan -DMINI_DBMS_ENABLE_ASAN=ON
+cmake --build build-asan --target mini_dbms_index_tests
+./build-asan/tests/mini_dbms_index_tests
+rg "std::(vector|map|set|unordered_map|unordered_set|list|deque|array|forward_list|span|stack|queue|priority_queue)" include src tests -n
+```
+
+结果摘要：
+- `cmake --build build`: 通过，index 库和测试目标构建完成。
+- `ctest --test-dir build --output-on-failure`: 通过，4/4 tests passed。
+- `cmake -S . -B build-asan -DMINI_DBMS_ENABLE_ASAN=ON`: 通过，ASan/UBSan 构建目录生成完成。
+- `cmake --build build-asan --target mini_dbms_index_tests`: 通过，ASan/UBSan 版本 index 测试目标构建完成。
+- `./build-asan/tests/mini_dbms_index_tests`: 通过，index 单元测试 6/6 passed，未见 ASan/UBSan 报错。
+- no-STL 扫描：通过，`include src tests` 下无 forbidden STL 容器匹配。
+
+### AI 辅助测试说明
+
+- AI 如何辅助测试：根据 Phase 5 B+树索引需求设计 index 单元测试，覆盖空树、精确查询、重复主键、节点分裂、范围查询和 `.idx` 持久化，并整理本测试记录。
+- AI 给出的建议：先用固定数组节点和小阶数触发更多分裂路径；范围查询通过叶子链表验证；持久化测试使用保存后重新加载的方式验证文件格式。
+- 最终选择：采纳上述单元测试和 ASan/UBSan 验证；性能测试和损坏文件错误测试暂不下结论，列为后续补充项。
+
+### 遗留测试问题
+
+- 尚未实现 B+树批量性能测试。
+- 尚未补充 `Insert(key, RowId())` 的无效 RowId 单测。
+- 尚未补充损坏 `.idx` 文件的错误路径单测。
+- Phase 6 Executor 需要补充 SQL insert/select 通过主键索引访问 Storage 的集成测试。
