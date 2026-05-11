@@ -34,6 +34,13 @@ if(MINI_DBMS_ENABLE_ASAN)
     )
 endif()
 
+add_library(mini_dbms_sql
+    src/sql/lexer.cpp
+    src/sql/parser.cpp
+)
+
+target_link_libraries(mini_dbms_sql PUBLIC mini_dbms_common)
+
 if(MINI_DBMS_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)

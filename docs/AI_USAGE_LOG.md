@@ -116,3 +116,39 @@ Git:
 
 遗留问题:
 - 需要补充显式错误路径测试和基础容器性能测试脚本。
+
+## 2026-05-11 Phase 3 SQL Lexer / Parser
+
+Skill:
+sql-parser-builder
+
+平台/模型:
+待补充
+
+Prompt 摘要:
+要求 AI 扮演 `sql-parser-builder`，先阅读 `docs/PROJECT_SPEC.md`、`docs/AI_PROJECT_CONTEXT.md`、`docs/ARCHITECTURE.md`、`include/common`、`include/testing` 和 `tests/common`；在 Phase 3 实现 Token 类型、Lexer、Command/AST 结构、Parser，支持课程要求 SQL 子集；Parser 不访问文件、不访问网络、不执行 SQL，不扩展 join/order by/group by/复杂表达式；命令结构必须能被 Executor 直接消费；完成后输出公开头文件和核心 API、Command 字段说明、测试覆盖列表，以及 Storage 下阶段是否依赖 Parser schema 类型。
+
+AI 产出:
+- 新增 SQL 公开头文件：`include/sql/token.h`、`include/sql/lexer.h`、`include/sql/command.h`、`include/sql/parser.h`。
+- 新增 SQL 实现文件：`src/sql/lexer.cpp`、`src/sql/parser.cpp`。
+- 新增 `SqlCommand` tagged struct，包含数据库名、表名、字段定义、select 列表、insert 值、update assignment 和 where 条件。
+- 新增 `tests/sql/parser_test.cpp`，覆盖课程要求 DDL/DML 解析、Lexer token 和常见非法 SQL。
+- 更新 CMake，新增 `mini_dbms_sql` 库和 `mini_dbms_sql_tests` 测试目标。
+
+人工审查:
+- 已检查项目文档中的 SQL 子集、标识符规则、类型范围和 no-STL 容器约束。
+- 已确认 Parser 只依赖 `common`，不访问 storage/index/network。
+- 已在测试失败后修正 Lexer 测试中遗漏右括号 token 的预期。
+
+验证结果:
+- `cmake -S . -B build && cmake --build build && ctest --test-dir build --output-on-failure`：通过，`common_tests` 和 `sql_tests` 2/2 passed。
+- no-STL 扫描 `rg -n "std::(vector|map|set|unordered_map|unordered_set|list|deque|array|forward_list|span|stack|queue|priority_queue)\\b" include/sql src/sql tests/sql CMakeLists.txt tests/CMakeLists.txt`：无匹配。
+- `cmake -S . -B build-asan -DMINI_DBMS_ENABLE_ASAN=ON && cmake --build build-asan && ctest --test-dir build-asan --output-on-failure`：通过，`common_tests` 和 `sql_tests` 2/2 passed。
+
+Git:
+未提交，原因：当前任务未要求提交；工作区包含 Phase 3 源码、测试和日志记录改动。
+
+遗留问题:
+- Parser 批量解析性能测试未实现。
+- Executor 阶段需要基于 `SqlCommand` 补充端到端执行集成测试。
+
