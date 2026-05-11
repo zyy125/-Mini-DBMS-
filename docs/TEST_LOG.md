@@ -376,3 +376,82 @@ ctest --test-dir build-asan --output-on-failure
 
 - 尚未实现 Executor 批量性能测试。
 - 尚未实现 Phase 7 Network/CLI 端到端 socket smoke 测试。
+
+## 2026-05-11 Phase 7 TCP 服务端和 CLI 客户端
+
+### 测试范围
+
+- `network` 模块 length-prefixed TCP frame 收发。
+- `db_server` TCP 服务端启动、端口监听、data root 初始化和 Executor 持有。
+- `db_client` CLI 连接服务端、读取 SQL、发送请求、接收响应和 `exit` 退出。
+- 自定义文本响应协议解析。
+- select 结果 MySQL-like 表格输出。
+- 通过 TCP 执行 DDL/DML/select/update/delete 的端到端 smoke test。
+- 错误响应路径、no-STL 容器约束扫描。
+
+### 测试用例与结果
+
+| 测试内容 | 输入 | 预期结果 | 实际结果 |
+| -------- | ---- | -------- | -------- |
+| Network/CLI 构建 | `cmake -S . -B build && cmake --build build --target db_server db_client` | `mini_dbms_network`、`db_server`、`db_client` 构建成功 | 通过 |
+| 全量 CTest 回归 | `ctest --test-dir build --output-on-failure` | common/sql/storage/index/executor 全部通过 | 通过，5/5 tests passed |
+| 服务端启动 | `./build/db_server 54321 <data_root>`，由 `scripts/manual_demo.sh` 启动 | 服务端监听 TCP 端口并初始化 Executor | 通过，demo 脚本成功连接并执行 SQL |
+| 客户端连接和退出 | `./build/db_client 127.0.0.1 54321` 后输入 `exit` | 客户端正常退出，不发送 storage 访问 | 通过，demo 脚本最后输入 `exit` 后结束 |
+| 端到端 DDL/DML | demo SQL：`create database`、`use`、`create table`、3 条 `insert` | 服务端执行成功，客户端打印 OK 消息 | 通过 |
+| select 表格输出 | `select * from students where age = 20` | 客户端打印 MySQL-like 表格，包含 id/name/age，两行结果 | 通过，输出 bob 和 cora |
+| 主键索引查询输出 | `select name from students where id = 2` | 返回 bob，并显示使用索引信息 | 通过，输出 `1 rows in set (using index)` |
+| update/delete 后查询 | `update students set age = 21 where id = 2`、`delete students where id < 2`、`select * from students where id > 0` | 更新和删除成功；最终表格返回 id 2、3 | 通过 |
+| 自定义协议 smoke | TCP 请求为 4 字节 big-endian length + SQL payload，响应为同格式文本 payload | 客户端可解析响应并格式化输出 | 通过，manual demo 覆盖多条请求/响应 |
+
+### 性能测试
+
+| 测试内容 | 输入规模 | 验证命令 | 预期结果 | 实际结果 |
+| -------- | -------- | -------- | -------- | -------- |
+| 网络吞吐/并发性能 | 未定义 | 未运行 | 后续可增加固定 SQL 数量、数据量和多客户端并发脚本 | 未运行；Phase 7 当前只做端到端功能 smoke test |
+
+### 错误测试
+
+| 测试内容 | 输入 | 预期结果 | 实际结果 |
+| -------- | ---- | -------- | -------- |
+| 未选择数据库直接查询 | 通过 TCP 客户端发送 `select missing from nowhere;` | 服务端返回非 OK 状态，客户端打印 ERROR，不崩溃 | 通过，输出 `ERROR InvalidArgument: No database selected` |
+| 服务端连接断开 | 未运行 | 客户端应输出通信错误并退出 | 未运行；需要补充自动化断连场景 |
+| 超大 payload | 未运行 | 协议层应拒绝超过 `kMaxPayloadBytes` 的请求 | 未运行；代码有上限检查，当前未设计测试 |
+
+### 验证命令
+
+```bash
+cmake -S . -B build
+cmake --build build --target db_server db_client
+ctest --test-dir build --output-on-failure
+bash scripts/manual_demo.sh
+rg -n "std::(vector|map|set|unordered_map|unordered_set|list|deque|array|forward_list|span|stack|queue|priority_queue)" include src tests CMakeLists.txt
+PORT=54322
+DATA_ROOT="$(mktemp -d /tmp/mini_dbms_phase7_error.XXXXXX)"
+./build/db_server "$PORT" "$DATA_ROOT" >"$DATA_ROOT/server.log" 2>&1 &
+./build/db_client 127.0.0.1 "$PORT" <<'SQL'
+select missing from nowhere;
+exit
+SQL
+```
+
+结果摘要：
+- `cmake -S . -B build`: 通过，普通构建目录配置完成。
+- `cmake --build build --target db_server db_client`: 通过，服务端和客户端目标构建完成。
+- `ctest --test-dir build --output-on-failure`: 通过，5/5 tests passed。
+- `bash scripts/manual_demo.sh`: 通过，端到端网络 demo 执行成功，select 表格输出正常。
+- no-STL 扫描：通过，`include src tests CMakeLists.txt` 下无 forbidden STL 容器匹配。
+- TCP 错误响应 smoke：通过，客户端输出 `ERROR InvalidArgument: No database selected`。
+- ASan/UBSan：未运行，原因是本阶段主要验证 Linux socket 集成和 CLI 交互；已运行普通构建、全量回归、no-STL 扫描和网络 smoke。
+
+### AI 辅助测试说明
+
+- AI 如何辅助测试：根据 Phase 7 网络与 CLI 边界整理 smoke test，执行构建、CTest、manual demo、no-STL 扫描和 TCP 错误响应验证，并将结果整理为课程报告可用记录。
+- AI 给出的建议：采用 4 字节长度前缀协议；服务端持有 Executor；客户端仅解析响应并格式化表格；用 `scripts/manual_demo.sh` 做可重复端到端演示。
+- 最终选择：采纳上述 smoke test 和记录方式；并发、断连和超大 payload 测试暂列为后续补充项。
+
+### 遗留测试问题
+
+- 尚未实现独立网络单元测试。
+- 尚未实现多客户端并发测试。
+- 尚未实现服务端断连、客户端重连和超大 payload 的自动化错误测试。
+- 尚未运行 Phase 7 ASan/UBSan 构建。

@@ -61,6 +61,24 @@ target_link_libraries(mini_dbms_executor
     PUBLIC mini_dbms_common mini_dbms_sql mini_dbms_storage mini_dbms_index
 )
 
+add_library(mini_dbms_network
+    src/network/protocol.cpp
+)
+
+target_link_libraries(mini_dbms_network PUBLIC mini_dbms_common)
+
+add_executable(db_server
+    src/server/db_server.cpp
+)
+
+target_link_libraries(db_server PRIVATE mini_dbms_executor mini_dbms_network)
+
+add_executable(db_client
+    src/client/db_client.cpp
+)
+
+target_link_libraries(db_client PRIVATE mini_dbms_network)
+
 if(MINI_DBMS_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)

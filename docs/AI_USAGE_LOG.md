@@ -228,3 +228,41 @@ Git:
 遗留问题:
 - Executor 批量性能测试未实现。
 - Network/CLI 尚未接入 Executor；Phase 7 需要实现 TCP 请求处理和 MySQL 风格表格格式化。
+
+## 2026-05-11 Phase 7 TCP 服务端和 CLI 客户端
+
+Skill:
+network-cli-builder, ai-log-recorder
+
+平台/模型:
+待补充
+
+Prompt 摘要:
+要求 AI 扮演 `network-cli-builder`，先阅读项目规格、AI 上下文、Executor 公开 API、QueryResult 定义和当前 CMake 配置；在 Phase 7 实现 `db_server` TCP 服务端、`db_client` CLI 客户端、length-prefixed text 请求/响应协议、select 结果 MySQL-like 表格输出、`exit` 退出客户端，以及网络 smoke test 或 `scripts/manual_demo.sh`；网络层不解析 SQL，CLI 不访问 storage 文件，Server 持有 Executor。
+
+AI 产出:
+- 新增 `include/network/protocol.h` 和 `src/network/protocol.cpp`，实现 4 字节 big-endian 长度前缀 + UTF-8 payload 的 TCP frame 收发。
+- 新增 `src/server/db_server.cpp`，实现可指定端口和 data root 的 TCP 服务端，持有 `Executor` 并把 SQL 执行结果序列化为文本响应。
+- 新增 `src/client/db_client.cpp`，实现交互式 CLI、`mini_dbms>` prompt、`exit` / `quit` 退出、SQL 发送、响应解析和 MySQL-like 表格输出。
+- 新增 `scripts/manual_demo.sh`，构建服务端/客户端，启动本地服务端并通过客户端执行端到端 demo SQL。
+- 更新 `CMakeLists.txt`，新增 `mini_dbms_network`、`db_server` 和 `db_client` 目标。
+
+人工审查:
+- 已检查网络边界：网络层只传输 SQL 文本和响应文本，不实现 SQL 解析或业务逻辑。
+- 已确认 CLI 不访问 storage 文件，只通过 TCP 与服务端通信。
+- 已确认服务端持有单个 `Executor` 实例，客户端连接上的多条 SQL 可以共享数据库上下文。
+- 已检查新增代码没有使用 forbidden STL 容器。
+
+验证结果:
+- `cmake -S . -B build && cmake --build build --target db_server db_client`：通过，`db_server` 和 `db_client` 构建完成。
+- `ctest --test-dir build --output-on-failure`：通过，`common_tests`、`sql_tests`、`storage_tests`、`index_tests`、`executor_tests` 5/5 passed。
+- `bash scripts/manual_demo.sh`：通过，客户端成功执行 create/use/create table/insert/select/update/delete/select/exit；select 输出 MySQL-like 表格，主键查询显示 `(using index)`。
+- no-STL 扫描 `rg -n "std::(vector|map|set|unordered_map|unordered_set|list|deque|array|forward_list|span|stack|queue|priority_queue)" include src tests CMakeLists.txt`：无匹配。
+- ASan/UBSan：本阶段未单独运行，原因是本次变更主要为 Linux socket 集成和 CLI；已运行普通构建、全量测试和网络 demo。
+
+Git:
+未提交，原因：当前任务未要求提交；工作区包含 Phase 7 源码、脚本、CMake 和日志记录改动。记录时 `HEAD` 为 `5d6ef46`，但该提交不包含本阶段改动。
+
+遗留问题:
+- 服务端当前按连接串行处理请求，暂未实现多客户端并发。
+- 响应格式为项目自定义文本协议，暂未提供独立网络单元测试；已有 `scripts/manual_demo.sh` 覆盖端到端 smoke test。
