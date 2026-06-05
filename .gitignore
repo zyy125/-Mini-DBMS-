@@ -1,5 +1,6 @@
 # Build outputs
 build/
+build-*/
 cmake-build-*/
 CMakeFiles/
 CMakeCache.txt
@@ -63,3 +64,9 @@ Thumbs.db
 VIBE_CODING_PLAN.md
 .codex/
 
+# Local report/log drafts not intended for Git submission
+docs/AI_USAGE_LOG.md
+docs/TEST_LOG.md
+docs/COURSE_REPORT_DRAFT.md
+docs/TEST_PLAN.md
+docs/TEST_COVERAGE_PHASE8.md
