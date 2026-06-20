@@ -62,7 +62,6 @@ Thumbs.db
 
 # Local AI planning/workflow files
 VIBE_CODING_PLAN.md
-.codex/
 
 # Local report/log drafts not intended for Git submission
 docs/AI_USAGE_LOG.md
@@ -70,3 +69,5 @@ docs/TEST_LOG.md
 docs/COURSE_REPORT_DRAFT.md
 docs/TEST_PLAN.md
 docs/TEST_COVERAGE_PHASE8.md
+docs/AI_PROJECT_CONTEXT.md
+docs/report_figures
